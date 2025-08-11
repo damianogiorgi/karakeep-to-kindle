@@ -110,10 +110,39 @@ class KindleBookmarksProcessor:
         # Always create HTML first
         html_content = self.create_html_content(article)
         
-        # Generate safe filename
-        title = article.get('title') or article.get('content', {}).get('title', 'Untitled')
-        safe_title = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_')).rstrip()
-        safe_title = safe_title[:50]  # Limit length
+        # Generate descriptive and safe filename
+        content = article.get('content', {})
+        title = content.get('title', 'Untitled Article')
+        author = content.get('author', '')
+        publisher = content.get('publisher', '')
+        
+        # Create a nice filename with author and publisher if available
+        filename_parts = []
+        
+        # Clean and truncate title
+        clean_title = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_', '.')).strip()
+        clean_title = re.sub(r'\s+', ' ', clean_title)  # Normalize whitespace
+        filename_parts.append(clean_title[:60])  # Longer title limit
+        
+        # Add author if available
+        if author and author != 'Unknown Author':
+            clean_author = "".join(c for c in author if c.isalnum() or c in (' ', '-', '_')).strip()
+            clean_author = re.sub(r'\s+', ' ', clean_author)
+            if clean_author:
+                filename_parts.append(f"by {clean_author[:30]}")
+        
+        # Add publisher if available and different from author
+        if publisher and publisher != author:
+            clean_publisher = "".join(c for c in publisher if c.isalnum() or c in (' ', '-', '_')).strip()
+            clean_publisher = re.sub(r'\s+', ' ', clean_publisher)
+            if clean_publisher and len(clean_publisher) > 2:
+                filename_parts.append(f"({clean_publisher[:25]})")
+        
+        # Combine parts
+        safe_title = " - ".join(filename_parts)
+        
+        # Final cleanup and length check
+        safe_title = safe_title[:120]  # Reasonable filename length limit
         
         # Save HTML file
         html_filepath = self.save_as_html(html_content, safe_title, output_dir)
@@ -123,6 +152,8 @@ class KindleBookmarksProcessor:
             return self.convert_html_to_pdf(html_filepath)
         elif format_type.lower() == "epub":
             return self.convert_html_to_epub(html_filepath)
+        elif format_type.lower() == "mobi":
+            return self.convert_html_to_mobi(html_filepath)
         else:
             return html_filepath
     
@@ -339,6 +370,74 @@ class KindleBookmarksProcessor:
             self.logger.error(f"Error converting HTML to EPUB: {e}")
             return html_filepath
     
+    def convert_html_to_mobi(self, html_filepath):
+        """Convert existing HTML file to MOBI using kindlegen or ebook-convert"""
+        try:
+            import subprocess
+            
+            mobi_filepath = html_filepath.with_suffix('.mobi')
+            
+            # Try ebook-convert from Calibre first (more reliable)
+            try:
+                result = subprocess.run([
+                    'ebook-convert', 
+                    str(html_filepath), 
+                    str(mobi_filepath),
+                    '--output-profile', 'kindle',
+                    '--mobi-file-type', 'new'
+                ], capture_output=True, text=True, timeout=300)
+                
+                if result.returncode == 0:
+                    self.logger.info(f"Converted HTML to MOBI using ebook-convert: {mobi_filepath.name}")
+                    return mobi_filepath
+                else:
+                    self.logger.warning(f"ebook-convert failed: {result.stderr}")
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                self.logger.warning("ebook-convert not available or timed out")
+            
+            # Fallback to kindlegen (deprecated but might still work)
+            try:
+                result = subprocess.run([
+                    'kindlegen', 
+                    str(html_filepath),
+                    '-o', mobi_filepath.name
+                ], capture_output=True, text=True, timeout=300)
+                
+                if result.returncode in [0, 1]:  # kindlegen returns 1 for warnings
+                    self.logger.info(f"Converted HTML to MOBI using kindlegen: {mobi_filepath.name}")
+                    return mobi_filepath
+                else:
+                    self.logger.warning(f"kindlegen failed: {result.stderr}")
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                self.logger.warning("kindlegen not available or timed out")
+            
+            # If both fail, try converting via EPUB first
+            self.logger.info("Trying MOBI conversion via EPUB...")
+            epub_filepath = self.convert_html_to_epub(html_filepath)
+            if epub_filepath != html_filepath:
+                try:
+                    result = subprocess.run([
+                        'ebook-convert', 
+                        str(epub_filepath), 
+                        str(mobi_filepath),
+                        '--output-profile', 'kindle'
+                    ], capture_output=True, text=True, timeout=300)
+                    
+                    if result.returncode == 0:
+                        self.logger.info(f"Converted EPUB to MOBI: {mobi_filepath.name}")
+                        # Clean up intermediate EPUB
+                        epub_filepath.unlink()
+                        return mobi_filepath
+                except (subprocess.TimeoutExpired, FileNotFoundError):
+                    pass
+            
+            self.logger.warning("All MOBI conversion methods failed, returning HTML")
+            return html_filepath
+            
+        except Exception as e:
+            self.logger.error(f"Error converting HTML to MOBI: {e}")
+            return html_filepath
+    
 
     
     def create_compilation_epub(self, articles, output_dir):
@@ -356,6 +455,14 @@ class KindleBookmarksProcessor:
         
         # Then convert to PDF
         return self.convert_html_to_pdf(html_filepath)
+    
+    def create_compilation_mobi(self, articles, output_dir):
+        """Create a single MOBI with all articles (HTML-first approach)"""
+        # First create HTML compilation
+        html_filepath = self.create_compilation_html(articles, output_dir)
+        
+        # Then convert to MOBI
+        return self.convert_html_to_mobi(html_filepath)
     
     def create_compilation_html(self, articles, output_dir):
         """Create a single HTML file with all articles (fallback)"""
@@ -538,8 +645,13 @@ class KindleBookmarksProcessor:
         # Combine all HTML
         full_html = "".join(html_parts)
         
-        # Generate filename
-        filename = f"Karakeep_Articles_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
+        # Generate descriptive filename
+        date_str = datetime.now().strftime('%Y-%m-%d')
+        time_str = datetime.now().strftime('%H%M')
+        article_count = len(articles)
+        
+        # Create a nice compilation filename
+        filename = f"Karakeep Collection - {article_count} Articles - {date_str} at {time_str}.html"
         filepath = output_dir / filename
         
         # Write HTML file
@@ -693,6 +805,8 @@ class KindleBookmarksProcessor:
                     filepath = self.create_compilation_pdf(articles, output_dir)
                 elif format_type == "epub":
                     filepath = self.create_compilation_epub(articles, output_dir)
+                elif format_type == "mobi":
+                    filepath = self.create_compilation_mobi(articles, output_dir)
                 else:
                     filepath = self.create_compilation_html(articles, output_dir)
                 
@@ -764,7 +878,7 @@ def main():
     parser = argparse.ArgumentParser(description='Process Karakeep articles for Kindle')
     parser.add_argument('--config', default=CONFIG_FILE, help='Configuration file path')
     parser.add_argument('--dry-run', action='store_true', help='Show what would be done without actually doing it')
-    parser.add_argument('--format', choices=['pdf', 'epub', 'html'], help='Output format (overrides config)')
+    parser.add_argument('--format', choices=['pdf', 'epub', 'html', 'mobi'], help='Output format (overrides config)')
     parser.add_argument('--compilation', action='store_true', help='Create single document with all articles instead of individual files')
     parser.add_argument('--cleanup', action='store_true', help='Delete generated files after successful email delivery')
     parser.add_argument('--send-email', metavar='FILE', help='Send specified file to Kindle via email (bypasses article processing)')

@@ -3,3 +3,7 @@ weasyprint>=60.0  # For PDF generation (optional - HTML fallback available)
 ebooklib>=0.18    # For EPUB generation (optional - HTML fallback available)
 six>=1.16.0       # Required by ebooklib
 lxml>=4.9.0       # Required by ebooklib for XML processing
+
+# For MOBI generation (external tools required):
+# - Calibre (ebook-convert command) - Recommended: https://calibre-ebook.com/
+# - Amazon KindleGen (deprecated but may work) - Legacy option
