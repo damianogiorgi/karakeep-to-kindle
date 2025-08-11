@@ -1,0 +1,17 @@
+{
+  "karakeep": {
+    "api_url": "https://bookmarks.damianogiorgi.it/api/v1",
+    "api_key": "your_karakeep_api_key_here"
+  },
+  "kindle": {
+    "email": "your_kindle_email@kindle.com",
+    "smtp_server": "smtp.gmail.com",
+    "smtp_port": 587,
+    "smtp_user": "your_email@gmail.com",
+    "smtp_password": "your_app_password_here"
+  },
+  "output": {
+    "format": "pdf",
+    "output_dir": "./output"
+  }
+}
