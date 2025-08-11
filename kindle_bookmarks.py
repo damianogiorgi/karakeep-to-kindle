@@ -95,6 +95,45 @@ class KindleBookmarksProcessor:
             # Filter for unarchived articles
             unarchived = [article for article in data.get('bookmarks', []) if not article.get('archived', False)]
             
+            # Sort articles from newest to oldest
+            # Try different possible date fields that might be available
+            def get_article_date(article):
+                # Try various date fields that might exist in the API response
+                date_fields = ['createdAt', 'created_at', 'dateAdded', 'date_added', 'updatedAt', 'updated_at', 'timestamp']
+                
+                for field in date_fields:
+                    if field in article and article[field]:
+                        try:
+                            # Handle different date formats
+                            date_str = article[field]
+                            if isinstance(date_str, str):
+                                # Try parsing ISO format first
+                                from datetime import datetime
+                                try:
+                                    return datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+                                except:
+                                    # Try other common formats
+                                    for fmt in ['%Y-%m-%dT%H:%M:%S', '%Y-%m-%d %H:%M:%S', '%Y-%m-%d']:
+                                        try:
+                                            return datetime.strptime(date_str, fmt)
+                                        except:
+                                            continue
+                            elif isinstance(date_str, (int, float)):
+                                # Unix timestamp
+                                return datetime.fromtimestamp(date_str)
+                        except:
+                            continue
+                
+                # Fallback: use article ID as a rough ordering if no date found
+                return article.get('id', 0)
+            
+            # Sort by date (newest first)
+            try:
+                unarchived.sort(key=get_article_date, reverse=True)
+                self.logger.info(f"Sorted {len(unarchived)} articles from newest to oldest")
+            except Exception as e:
+                self.logger.warning(f"Could not sort articles by date: {e}")
+            
             self.logger.info(f"Found {len(unarchived)} unarchived articles")
             return unarchived
             
