@@ -657,7 +657,7 @@ class KindleBookmarksProcessor:
         article_count = len(articles)
         
         # Create a nice compilation filename
-        filename = f"Karakeep Collection - {article_count} Articles - {date_str} at {time_str}.html"
+        filename = f"Karakeep {date_str} at {time_str} - {article_count} Articles -.html"
         filepath = output_dir / filename
         
         # Write HTML file
