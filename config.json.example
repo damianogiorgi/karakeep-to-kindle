@@ -1,6 +1,6 @@
 {
   "karakeep": {
-    "api_url": "https://bookmarks.damianogiorgi.it/api/v1",
+    "api_url": "https://yourkarakeepappurl.com/api/v1",
     "api_key": "your_karakeep_api_key_here"
   },
   "kindle": {

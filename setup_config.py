@@ -35,10 +35,7 @@ def main():
     
     # Karakeep settings
     print("1. Karakeep Settings")
-    config["karakeep"]["api_url"] = get_input(
-        "Karakeep API URL", 
-        "https://bookmarks.damianogiorgi.it/api/v1"
-    )
+    config["karakeep"]["api_url"] = get_input("Karakeep API URL")
     config["karakeep"]["api_key"] = get_input("Karakeep API Key")
     
     print("\n2. Kindle Settings")
