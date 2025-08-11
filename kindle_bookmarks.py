@@ -767,11 +767,35 @@ def main():
     parser.add_argument('--format', choices=['pdf', 'epub', 'html'], help='Output format (overrides config)')
     parser.add_argument('--compilation', action='store_true', help='Create single document with all articles instead of individual files')
     parser.add_argument('--cleanup', action='store_true', help='Delete generated files after successful email delivery')
+    parser.add_argument('--send-email', metavar='FILE', help='Send specified file to Kindle via email (bypasses article processing)')
     
     args = parser.parse_args()
     
     try:
         processor = KindleBookmarksProcessor(args.config)
+        
+        # Handle send-email mode (bypasses article processing)
+        if args.send_email:
+            filepath = Path(args.send_email)
+            if not filepath.exists():
+                print(f"Error: File '{filepath}' does not exist")
+                sys.exit(1)
+            
+            if args.dry_run:
+                print(f"DRY RUN: Would send file '{filepath}' to Kindle")
+                return
+            
+            print(f"Sending file '{filepath}' to Kindle...")
+            if processor.send_to_kindle(filepath):
+                print(f"Successfully sent '{filepath.name}' to Kindle")
+                
+                # Cleanup file if requested
+                if args.cleanup:
+                    processor.cleanup_file(filepath)
+            else:
+                print(f"Failed to send '{filepath.name}' to Kindle")
+                sys.exit(1)
+            return
         
         # Override format if specified
         if args.format:
