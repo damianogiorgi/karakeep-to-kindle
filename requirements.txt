@@ -7,3 +7,6 @@ lxml>=4.9.0       # Required by ebooklib for XML processing
 # For MOBI generation (external tools required):
 # - Calibre (ebook-convert command) - Recommended: https://calibre-ebook.com/
 # - Amazon KindleGen (deprecated but may work) - Legacy option
+
+# For static executable compilation:
+pyinstaller>=5.13.0  # Creates standalone executables with no dependencies
