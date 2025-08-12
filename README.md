@@ -785,6 +785,42 @@ We welcome contributions! Please feel free to:
 - Submit pull requests
 - Improve documentation
 
+## ⚠️ **Disclaimer**
+
+**AI-Assisted Development Notice:**
+
+This entire project was created through **AI-assisted "vibe coding"** in a **two-hour development session** using Kiro IDE with Claude AI. While the code has been tested and includes comprehensive error handling, please note:
+
+### 🤖 **Development Process:**
+- **Rapid prototyping** with AI assistance for faster development
+- **Real-time problem solving** and feature implementation
+- **Iterative improvements** based on testing and feedback
+- **Comprehensive documentation** generated alongside code
+
+### ⚠️ **No Warranties:**
+- **Use at your own risk** - this is experimental software
+- **No guarantees** of functionality, reliability, or fitness for purpose
+- **Test thoroughly** in your environment before production use
+- **Backup your data** and test with non-critical articles first
+
+### 🧪 **Recommended Approach:**
+1. **Start with dry-run mode** to test without actual processing
+2. **Test with a few articles** before processing large batches
+3. **Verify email delivery** works with your Kindle setup
+4. **Monitor logs** for any issues or errors
+5. **Keep backups** of important configurations
+
+### 🔧 **Known Limitations:**
+- **Dependency on external services** (Karakeep API, email servers)
+- **Network connectivity requirements** for image downloads
+- **Platform-specific behavior** may vary across different systems
+- **Third-party library dependencies** may have their own limitations
+
+### 📝 **Support:**
+While this project includes extensive documentation and error handling, **support is provided on a best-effort basis**. The code is open source - feel free to modify, improve, and adapt it to your needs.
+
+**Remember:** This is a tool created quickly with AI assistance. While functional and well-documented, it should be treated as experimental software. Always test thoroughly and use appropriate caution when automating important workflows.
+
 ## 📄 **License**
 
 This project is open source and available under the MIT License.
