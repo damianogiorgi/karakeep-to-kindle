@@ -73,7 +73,155 @@ install_pyinstaller() {
     fi
 }
 
-# Function to create PyInstaller spec file
+# Function to create a portable Python bundle instead of PyInstaller
+create_portable_bundle() {
+    log "Creating portable Python bundle..."
+    
+    local bundle_dir="$OUTPUT_DIR/kindle-bookmarks-portable"
+    mkdir -p "$bundle_dir"
+    
+    # Copy Python files
+    cp "$PYTHON_SCRIPT" "$bundle_dir/"
+    cp "$SCRIPT_DIR/config.json.example" "$bundle_dir/"
+    
+    # Create a minimal requirements file for the bundle
+    cat > "$bundle_dir/requirements-minimal.txt" << 'EOF'
+requests>=2.31.0
+# Note: weasyprint and ebooklib are optional - HTML fallback available
+EOF
+    
+    # Create a portable runner script
+    cat > "$bundle_dir/run-portable.sh" << 'EOF'
+#!/bin/bash
+
+# Portable Kindle Bookmarks Runner
+# This script sets up a minimal Python environment and runs the application
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VENV_DIR="$SCRIPT_DIR/portable-venv"
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+log() {
+    echo -e "${BLUE}[$(date '+%Y-%m-%d %H:%M:%S')]${NC} $1"
+}
+
+error() {
+    echo -e "${RED}[ERROR]${NC} $1" >&2
+}
+
+success() {
+    echo -e "${GREEN}[SUCCESS]${NC} $1"
+}
+
+# Check if Python is available
+check_python() {
+    if command -v python3 >/dev/null 2>&1; then
+        PYTHON_CMD="python3"
+    elif command -v python >/dev/null 2>&1; then
+        PYTHON_CMD="python"
+    else
+        error "Python not found. Please install Python 3.7+ in the container."
+        exit 1
+    fi
+    
+    # Check Python version
+    local python_version=$($PYTHON_CMD -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+    log "Found Python $python_version"
+    
+    if ! $PYTHON_CMD -c "import sys; sys.exit(0 if sys.version_info >= (3, 7) else 1)" 2>/dev/null; then
+        error "Python 3.7+ required, found $python_version"
+        exit 1
+    fi
+}
+
+# Create minimal virtual environment
+setup_venv() {
+    if [ ! -d "$VENV_DIR" ]; then
+        log "Creating portable virtual environment..."
+        $PYTHON_CMD -m venv "$VENV_DIR"
+        
+        # Activate and install minimal requirements
+        source "$VENV_DIR/bin/activate"
+        pip install --no-cache-dir -r "$SCRIPT_DIR/requirements-minimal.txt"
+        success "Portable environment created"
+    else
+        log "Using existing portable environment"
+        source "$VENV_DIR/bin/activate"
+    fi
+}
+
+# Run the application
+run_application() {
+    log "Running Kindle Bookmarks (portable mode)..."
+    
+    # Check if config exists
+    if [ ! -f "$SCRIPT_DIR/config.json" ]; then
+        error "Configuration file not found at $SCRIPT_DIR/config.json"
+        error "Please create config.json based on config.json.example"
+        exit 1
+    fi
+    
+    # Run with HTML format (most compatible)
+    $PYTHON_CMD "$SCRIPT_DIR/kindle_bookmarks.py" \
+        --config "$SCRIPT_DIR/config.json" \
+        --format html \
+        --compilation \
+        --cleanup
+    
+    local exit_code=$?
+    
+    if [ $exit_code -eq 0 ]; then
+        success "Kindle compilation completed successfully"
+    else
+        error "Kindle compilation failed with exit code $exit_code"
+    fi
+    
+    return $exit_code
+}
+
+# Main execution
+main() {
+    log "=== Kindle Bookmarks Portable Runner ==="
+    
+    check_python
+    setup_venv
+    run_application
+}
+
+# Handle arguments
+case "${1:-}" in
+    --help|-h)
+        echo "Kindle Bookmarks Portable Runner"
+        echo ""
+        echo "This script creates a minimal Python environment and runs the application."
+        echo "It only requires Python 3.7+ to be available in the container."
+        echo ""
+        echo "Usage: $0"
+        echo ""
+        echo "Files needed:"
+        echo "  - config.json (create from config.json.example)"
+        echo "  - kindle_bookmarks.py"
+        echo "  - requirements-minimal.txt"
+        ;;
+    *)
+        main "$@"
+        ;;
+esac
+EOF
+
+    chmod +x "$bundle_dir/run-portable.sh"
+    
+    success "Portable bundle created at: $bundle_dir"
+}
+
+# Function to create PyInstaller spec file (fallback method)
 create_spec_file() {
     log "Creating PyInstaller spec file..."
     
@@ -137,7 +285,7 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,  # Disable UPX to avoid compatibility issues
     upx_exclude=[],
     runtime_tmpdir=None,
     console=True,
@@ -371,9 +519,88 @@ show_summary() {
     echo "  Use ./run-in-docker.sh in exec nodes"
 }
 
+# Function to create portable deployment package
+create_portable_deployment_package() {
+    local package_name="kindle-bookmarks-portable-$(date +%Y%m%d-%H%M%S).tar.gz"
+    local package_path="$SCRIPT_DIR/$package_name"
+    
+    log "Creating portable deployment package..."
+    
+    # Create temporary directory for package contents
+    local temp_dir=$(mktemp -d)
+    local package_dir="$temp_dir/kindle-bookmarks-portable"
+    
+    mkdir -p "$package_dir"
+    
+    # Copy portable bundle
+    cp -r "$OUTPUT_DIR/kindle-bookmarks-portable/"* "$package_dir/"
+    
+    # Create README for portable deployment
+    cat > "$package_dir/README.md" << 'EOF'
+# Kindle Bookmarks Portable Bundle
+
+This package contains a portable Python application that works in any Docker container with Python 3.7+.
+
+## Files:
+- `kindle_bookmarks.py` - Main Python script
+- `run-portable.sh` - Portable runner script
+- `config.json.example` - Configuration template
+- `requirements-minimal.txt` - Minimal dependencies
+
+## Usage:
+
+### 1. Setup Configuration
+```bash
+cp config.json.example config.json
+# Edit config.json with your settings
+```
+
+### 2. Run Portable Application
+```bash
+# The script will automatically create a virtual environment and install dependencies
+./run-portable.sh
+```
+
+### 3. Docker Integration
+Copy all files to your Docker container (must have Python 3.7+) and run:
+```bash
+./run-portable.sh
+```
+
+## Node-RED Integration
+Use the `run-portable.sh` script in your Node-RED exec nodes:
+```
+/path/to/run-portable.sh
+```
+
+## Requirements:
+- Python 3.7+ available in the container
+- Internet access for initial dependency installation
+- The script creates its own virtual environment automatically
+
+## Benefits:
+- Works on any architecture (ARM64, x86_64, etc.)
+- No pre-compilation needed
+- Automatic dependency management
+- Cross-platform compatibility
+EOF
+
+    # Create the package
+    cd "$temp_dir"
+    tar -czf "$package_path" kindle-bookmarks-portable/
+    
+    # Cleanup
+    rm -rf "$temp_dir"
+    
+    success "Portable deployment package created: $package_name"
+    log "Package size: $(du -h "$package_path" | cut -f1)"
+}
+
 # Main execution function
 main() {
-    log "=== Kindle Bookmarks Static Compilation Started ==="
+    local compilation_method="${1:-both}"
+    
+    log "=== Kindle Bookmarks Compilation Started ==="
     
     # Pre-flight checks
     check_venv
@@ -381,28 +608,75 @@ main() {
     # Activate virtual environment
     activate_venv
     
-    # Install PyInstaller
-    install_pyinstaller
+    # Create output directory
+    mkdir -p "$OUTPUT_DIR"
     
-    # Create spec file
-    create_spec_file
+    case "$compilation_method" in
+        "portable"|"--portable")
+            log "Creating portable Python bundle (recommended for Docker)..."
+            create_portable_bundle
+            create_portable_deployment_package
+            
+            log "=== Portable Bundle Summary ==="
+            echo "Portable bundle: $OUTPUT_DIR/kindle-bookmarks-portable/"
+            echo "Runner script: $OUTPUT_DIR/kindle-bookmarks-portable/run-portable.sh"
+            echo ""
+            echo "For Docker deployment:"
+            echo "  1. Copy portable bundle to your container"
+            echo "  2. Ensure Python 3.7+ is available in container"
+            echo "  3. Create config.json from config.json.example"
+            echo "  4. Run: ./run-portable.sh"
+            echo ""
+            echo "Benefits:"
+            echo "  - Works on any architecture (ARM64, x86_64)"
+            echo "  - No compilation compatibility issues"
+            echo "  - Automatic dependency management"
+            ;;
+            
+        "pyinstaller"|"--pyinstaller")
+            log "Creating PyInstaller executable (may have compatibility issues)..."
+            install_pyinstaller
+            create_spec_file
+            compile_executable
+            test_executable
+            create_docker_wrapper
+            create_deployment_package
+            show_summary
+            ;;
+            
+        "both"|*)
+            log "Creating both portable bundle and PyInstaller executable..."
+            
+            # Create portable bundle first (recommended)
+            create_portable_bundle
+            create_portable_deployment_package
+            
+            # Try PyInstaller compilation
+            log "Attempting PyInstaller compilation..."
+            install_pyinstaller
+            create_spec_file
+            
+            if compile_executable && test_executable; then
+                create_docker_wrapper
+                create_deployment_package
+                show_summary
+                
+                log "=== Both Methods Completed ==="
+                echo "✅ Portable bundle: $OUTPUT_DIR/kindle-bookmarks-portable/ (RECOMMENDED for Docker)"
+                echo "✅ PyInstaller executable: $OUTPUT_DIR/$EXECUTABLE_NAME"
+                echo ""
+                echo "For Docker containers, use the portable bundle to avoid compatibility issues."
+            else
+                warning "PyInstaller compilation failed, but portable bundle is available"
+                log "=== Portable Bundle Available ==="
+                echo "✅ Portable bundle: $OUTPUT_DIR/kindle-bookmarks-portable/ (RECOMMENDED)"
+                echo ""
+                echo "Use the portable bundle for maximum compatibility across different environments."
+            fi
+            ;;
+    esac
     
-    # Compile executable
-    compile_executable
-    
-    # Test executable
-    test_executable
-    
-    # Create Docker wrapper
-    create_docker_wrapper
-    
-    # Create deployment package
-    create_deployment_package
-    
-    # Show summary
-    show_summary
-    
-    success "=== Static compilation completed successfully ==="
+    success "=== Compilation completed successfully ==="
 }
 
 # Handle script arguments
@@ -413,16 +687,24 @@ case "${1:-}" in
         success "Cleanup completed"
         ;;
     --help|-h)
-        echo "Kindle Bookmarks Static Compilation Script"
+        echo "Kindle Bookmarks Compilation Script"
         echo ""
-        echo "Usage: $0 [OPTIONS]"
+        echo "Usage: $0 [METHOD]"
+        echo ""
+        echo "Methods:"
+        echo "  --portable     Create portable Python bundle (RECOMMENDED for Docker)"
+        echo "  --pyinstaller  Create PyInstaller executable (may have compatibility issues)"
+        echo "  (default)      Create both portable bundle and PyInstaller executable"
         echo ""
         echo "Options:"
-        echo "  --clean      Clean build artifacts"
-        echo "  --help, -h   Show this help message"
+        echo "  --clean        Clean build artifacts"
+        echo "  --help, -h     Show this help message"
         echo ""
-        echo "This script creates a standalone executable with no dependencies"
-        echo "Perfect for Docker containers and Node-RED integration"
+        echo "Recommended for Docker containers:"
+        echo "  $0 --portable"
+        echo ""
+        echo "The portable bundle works on any architecture (ARM64, x86_64) and requires"
+        echo "only Python 3.7+ in the target container. No compilation compatibility issues!"
         ;;
     *)
         main "$@"
