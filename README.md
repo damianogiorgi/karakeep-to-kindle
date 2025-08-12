@@ -452,6 +452,254 @@ source venv/bin/activate
 python kindle_bookmarks.py --compilation --dry-run
 ```
 
+## 🐳 **Docker & Node-RED Integration**
+
+### Automated Execution with Node-RED
+
+For automated processing in Node-RED environments, especially on Raspberry Pi, use the provided automation scripts:
+
+#### Method 1: Shell Script (Host Environment)
+```bash
+# Use the Node-RED automation script
+./run_kindle_compilation.sh
+```
+
+#### Method 2: Portable Bundle (Docker Containers)
+For Node-RED running in Docker containers, use the portable Python bundle:
+
+```bash
+# Create portable bundle (solves ARM64/compatibility issues)
+./compile_static_executable.sh --portable
+```
+
+### 🚨 **Raspberry Pi ARM64 Docker Issues**
+
+**Problem:** PyInstaller executables fail in ARM64 Docker containers with errors like:
+```
+kindle-bookmarks: cannot execute: required file not found
+Error loading shared library ld-linux-aarch64.so.1: No such file or directory
+Error relocating kindle-bookmarks: __realpath_chk: symbol not found
+```
+
+**Root Cause:** 
+- PyInstaller creates dynamically linked executables
+- ARM64 containers often lack required glibc libraries
+- Architecture-specific compilation compatibility issues
+
+**✅ Solution: Use Portable Python Bundle**
+
+The portable bundle approach eliminates all compilation and architecture issues:
+
+### Portable Bundle Setup for Docker
+
+#### 1. Create Portable Bundle
+```bash
+# On your development machine (any architecture)
+./compile_static_executable.sh --portable
+```
+
+This creates:
+- `dist/kindle-bookmarks-portable/` - Complete portable application
+- `kindle-bookmarks-portable-YYYYMMDD-HHMMSS.tar.gz` - Deployment package
+
+#### 2. Deploy to Docker Container
+```bash
+# Extract deployment package
+tar -xzf kindle-bookmarks-portable-*.tar.gz
+
+# Copy to your Node-RED container
+docker cp kindle-bookmarks-portable/ nodered_container:/data/
+
+# Create configuration
+docker exec nodered_container cp /data/kindle-bookmarks-portable/config.json.example /data/kindle-bookmarks-portable/config.json
+# Edit config.json with your settings
+```
+
+#### 3. Node-RED Exec Node Configuration
+```json
+{
+    "id": "kindle-docker",
+    "type": "exec",
+    "command": "/data/kindle-bookmarks-portable/run-portable.sh",
+    "addpay": false,
+    "append": "",
+    "useSpawn": "false",
+    "timer": "",
+    "oldrc": false,
+    "name": "Kindle Bookmarks (Docker)",
+    "wires": [["success"], ["error"], ["exit-code"]]
+}
+```
+
+### Docker Integration Methods
+
+#### Method A: Volume Mount
+```yaml
+# docker-compose.yml
+version: '3.8'
+services:
+  nodered:
+    image: nodered/node-red
+    volumes:
+      - ./kindle-bookmarks-portable:/data/kindle-bookmarks
+    environment:
+      - TZ=Europe/Rome
+```
+
+#### Method B: Custom Dockerfile
+```dockerfile
+FROM nodered/node-red
+COPY kindle-bookmarks-portable/ /data/kindle-bookmarks/
+USER node-red
+```
+
+### Portable Bundle Benefits
+
+| Traditional Approach | Portable Bundle |
+|---------------------|-----------------|
+| ❌ Architecture-specific compilation | ✅ Works on any architecture |
+| ❌ glibc/library dependencies | ✅ Only requires Python 3.7+ |
+| ❌ Static linking issues | ✅ Pure Python approach |
+| ❌ Large binary files (50MB+) | ✅ Lightweight bundle (10KB) |
+| ❌ Compilation compatibility problems | ✅ No compilation needed |
+
+### Container Requirements
+
+**Minimal Requirements:**
+- Python 3.7+ available in container
+- Internet access for initial dependency installation
+- Basic Linux utilities (bash, tar, etc.)
+
+**Compatible Base Images:**
+- `nodered/node-red` (includes Python)
+- `python:3.7-alpine`
+- `ubuntu:20.04` + Python
+- `debian:bullseye` + Python
+
+### Node-RED Flow Examples
+
+#### Simple Scheduled Processing
+```json
+[
+    {
+        "id": "daily-trigger",
+        "type": "inject",
+        "name": "Daily 8AM",
+        "props": [{"p": "payload", "v": "", "vt": "date"}],
+        "repeat": "",
+        "crontab": "0 8 * * *",
+        "once": false
+    },
+    {
+        "id": "kindle-exec",
+        "type": "exec",
+        "command": "/data/kindle-bookmarks-portable/run-portable.sh",
+        "name": "Process Articles"
+    },
+    {
+        "id": "result-debug",
+        "type": "debug",
+        "name": "Results"
+    }
+]
+```
+
+#### Advanced Flow with Notifications
+```json
+[
+    {
+        "id": "manual-button",
+        "type": "inject",
+        "name": "Process Now",
+        "props": [{"p": "payload", "v": "", "vt": "date"}]
+    },
+    {
+        "id": "kindle-exec",
+        "type": "exec",
+        "command": "/data/kindle-bookmarks-portable/run-portable.sh"
+    },
+    {
+        "id": "success-check",
+        "type": "switch",
+        "property": "payload.code",
+        "rules": [
+            {"t": "eq", "v": "0", "vt": "num"},
+            {"t": "neq", "v": "0", "vt": "num"}
+        ]
+    },
+    {
+        "id": "success-notification",
+        "type": "function",
+        "name": "Success Message",
+        "func": "msg.payload = 'Articles sent to Kindle successfully!'; return msg;"
+    },
+    {
+        "id": "error-notification",
+        "type": "function",
+        "name": "Error Message", 
+        "func": "msg.payload = 'Failed to process articles: ' + msg.payload.stderr; return msg;"
+    }
+]
+```
+
+### Troubleshooting Docker Issues
+
+#### Container Python Check
+```bash
+# Verify Python availability in container
+docker exec container python3 --version
+docker exec container which python3
+```
+
+#### Permission Issues
+```bash
+# Fix permissions if needed
+docker exec container chmod +x /data/kindle-bookmarks-portable/run-portable.sh
+```
+
+#### Config File Issues
+```bash
+# Check config exists and is readable
+docker exec container ls -la /data/kindle-bookmarks-portable/config.json
+docker exec container cat /data/kindle-bookmarks-portable/config.json
+```
+
+#### Test Execution
+```bash
+# Test the portable runner directly
+docker exec container /data/kindle-bookmarks-portable/run-portable.sh --help
+```
+
+### Performance in Containers
+
+**Startup Time:**
+- First run: ~30 seconds (creates venv, installs dependencies)
+- Subsequent runs: ~5 seconds (uses existing environment)
+
+**Resource Usage:**
+- Memory: ~50MB during execution
+- Storage: ~20MB for portable environment
+- Network: Downloads images and sends email
+
+**Optimization Tips:**
+- Use persistent volumes to preserve the portable virtual environment
+- Schedule processing during low-traffic periods
+- Monitor container logs for performance insights
+
+### Security in Docker
+
+**Configuration Security:**
+- Mount config.json as read-only volume
+- Use Docker secrets for sensitive values
+- Restrict container network access if possible
+
+**File Security:**
+- Portable bundle creates temporary files in container
+- Files are automatically cleaned up after successful delivery
+- No persistent sensitive data stored
+
+This approach completely eliminates the ARM64/glibc compatibility issues while providing a robust, maintainable solution for Docker-based Node-RED automation! 🚀
+
 ## 🛠️ **Troubleshooting Guide**
 
 ### Common Issues & Solutions
